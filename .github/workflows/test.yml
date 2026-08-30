@@ -1,0 +1,32 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # verify は履歴を走査する。浅い clone だと自分自身を
+          # 検査するテストが意味を持たなくなる。
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      # 依存はゼロ。tomllib は 3.11 で標準ライブラリに入った。
+      - name: 単体テスト
+        run: python -m unittest discover -s tests -t . -v
+
+      - name: 自分自身を scan にかける
+        run: python -m publish_guard.cli scan .
