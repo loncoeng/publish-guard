@@ -159,24 +159,20 @@ No dependencies required. The tests build real git repositories in a temporary
 directory and verify the behaviour that matters: that a value removed by a later
 commit is still found, and that every derived form is caught.
 
-## How this went wrong while it was being written
+## A note from writing this
 
-This tool exists because sanitizing two repositories failed in three ways. While
-writing it, I leaked the same client's data three more times — in this tool's own
-documentation.
+The first version of this README used real values as examples — a real resource
+identifier, a real internal term — on the reasoning that examples from experience
+beat invented ones. They went into the README and the tests of a tool built to find
+exactly that. I caught it and rebuilt the repository before anyone had cloned it.
 
-I used real values as examples, on the reasoning that examples from experience beat
-invented ones. A real Drive folder ID. A real internal metric name. The client's
-actual company name, used to demonstrate case variants. All of it published, briefly,
-in the README and the tests of a tool whose entire purpose is to prevent that.
+The part worth writing down comes after. `scan` had already flagged one of them. It
+printed the identifier as a candidate. I read that output and decided it was fine,
+because it was "just a test fixture."
 
-The part worth knowing is this: `scan` caught one of them. It printed the folder ID
-as a candidate. I read the output and decided it was fine, because it was "just a
-test fixture."
-
-The tool did its job. The person reading the output overrode it. That is why `verify`
-exits non-zero and belongs in CI — not because you will forget, but because you will
-see the warning and talk yourself out of it.
+The tool worked. The person reading its output was the one who got it wrong. That is
+why `verify` exits non-zero and belongs in CI — not because you will forget, but
+because you will see the warning and talk yourself out of it.
 
 ## License
 
