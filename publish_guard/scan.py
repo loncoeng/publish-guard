@@ -12,12 +12,30 @@
 
 from __future__ import annotations
 
+import fnmatch
 import re
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import gitrepo
+
+# 依存関係のロックファイル。既定で scan の対象から外す。
+#
+# 中身は機械が書いたチェックサムの羅列で、識別子の形をしている。
+# package-lock.json 一つで opaque-id が百数十件出て、本当に見るべき
+# 候補がその中に埋もれる。候補が200件並べば人間は読まなくなり、
+# 除外しないことがかえって見落としを生む。
+#
+# 外すのは scan だけで、verify には効かせない。詳しくは verify.py。
+DEFAULT_SKIP = (
+    "package-lock.json", "npm-shrinkwrap.json", "yarn.lock", "pnpm-lock.yaml",
+    "bun.lock", "bun.lockb", "deno.lock",
+    "poetry.lock", "Pipfile.lock", "uv.lock", "pdm.lock",
+    "Cargo.lock", "composer.lock", "Gemfile.lock", "go.sum",
+    "gradle.lockfile", "packages.lock.json", "mix.lock", "flake.lock",
+    "pubspec.lock", "Podfile.lock",
+)
 
 # プレースホルダとして広く使われるもの。候補から外す。
 PLACEHOLDER_HOSTS = {
@@ -87,10 +105,29 @@ class ScanReport:
     categories: dict[str, dict[str, Candidate]] = field(default_factory=lambda: defaultdict(dict))
     blobs_scanned: int = 0
     commits_scanned: int = 0
+    # 除外したものは必ず数えて表に出す。黙って飛ばすと、利用者は
+    # 全部を見たつもりになる。見ていない範囲があることは、
+    # 見ていない本人に伝わらなければ意味がない。
+    skipped_paths: set[str] = field(default_factory=set)
+    blobs_skipped: int = 0
 
     @property
     def total(self) -> int:
         return sum(len(v) for v in self.categories.values())
+
+
+def should_skip(path: str, patterns: tuple[str, ...]) -> bool:
+    """パスが除外パターンに当たるか。
+
+    パターンはファイル名にもパス全体にも当てる。`package-lock.json` と
+    書いたときに、リポジトリ直下のものだけが外れて `web/package-lock.json`
+    が残る、という挙動は意図に反する。
+    """
+    name = path.rsplit("/", 1)[-1]
+    return any(
+        fnmatch.fnmatch(path, pattern) or fnmatch.fnmatch(name, pattern)
+        for pattern in patterns
+    )
 
 
 def _looks_like_placeholder(value: str) -> bool:
@@ -128,12 +165,24 @@ def _keep(category: str, value: str) -> bool:
     return True
 
 
-def scan(repo: Path, *, all_refs: bool = True, history: bool = True) -> ScanReport:
+def scan(
+    repo: Path,
+    *,
+    all_refs: bool = True,
+    history: bool = True,
+    exclude: tuple[str, ...] = (),
+    skip_lockfiles: bool = True,
+) -> ScanReport:
     report = ScanReport()
     head_paths = set(gitrepo.working_tree_files(repo))
     report.commits_scanned = len(gitrepo.commits(repo, all_refs=all_refs)) if history else 1
+    patterns = tuple(exclude) + (DEFAULT_SKIP if skip_lockfiles else ())
 
     for blob in gitrepo.blobs(repo, all_refs=all_refs, history=history):
+        if patterns and should_skip(blob.path, patterns):
+            report.blobs_skipped += 1
+            report.skipped_paths.add(blob.path)
+            continue
         text = gitrepo.read_blob(repo, blob.sha)
         if text is None:
             continue

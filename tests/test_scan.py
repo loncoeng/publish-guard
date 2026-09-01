@@ -14,7 +14,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from publish_guard.scan import _keep, _looks_like_placeholder, scan
+from publish_guard.scan import _keep, _looks_like_placeholder, scan, should_skip
 
 
 class PlaceholderTest(unittest.TestCase):
@@ -122,6 +122,108 @@ class ScanRepoTest(unittest.TestCase):
         self._commit("雛形を追加")
         report = scan(self.path)
         self.assertEqual(report.total, 0)
+
+
+class SkipPathTest(unittest.TestCase):
+    """除外パターンの当たり方。"""
+
+    def test_ファイル名で当たる(self):
+        self.assertTrue(should_skip("package-lock.json", ("package-lock.json",)))
+
+    def test_深い階層のファイル名にも当たる(self):
+        # 直下のものだけ外れて web/ の下が残る、という挙動は意図に反する。
+        self.assertTrue(should_skip("web/package-lock.json", ("package-lock.json",)))
+
+    def test_パス全体のグロブで当たる(self):
+        self.assertTrue(should_skip("vendor/lib/a.js", ("vendor/*",)))
+        self.assertTrue(should_skip("docs/old/notes.md", ("docs/**",)))
+
+    def test_拡張子のグロブで当たる(self):
+        self.assertTrue(should_skip("data/dump.csv", ("*.csv",)))
+
+    def test_当たらないものは残す(self):
+        self.assertFalse(should_skip("src/index.js", ("package-lock.json", "*.csv")))
+
+    def test_パターンが空なら何も外さない(self):
+        self.assertFalse(should_skip("package-lock.json", ()))
+
+
+class LockfileSkipTest(unittest.TestCase):
+    """ロックファイルは既定で外す。
+
+    これは実際に困って入れた。JavaScript のリポジトリを scan したら
+    候補197件のうち155件が package-lock.json の整合性ハッシュで、
+    本当に見るべきものが埋もれて監査に使えなかった。
+    """
+
+    LOCK = '{"packages":{"":{"dependencies":{}}},"integrity":"sha512-7nwRJhN1HWpVmJm511pBHUxPLtp0BUISzlBplORYSmTclCnJvQq2tKu"}'
+
+    def setUp(self) -> None:
+        self.path = Path(tempfile.mkdtemp(prefix="publish-guard-skip-"))
+        self._git("init", "-q", "-b", "main")
+        self._git("config", "user.name", "Test")
+        self._git("config", "user.email", "test@example.com")
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self.path, ignore_errors=True)
+
+    def _git(self, *args: str) -> None:
+        subprocess.run(["git", "-C", str(self.path), *args], check=True, capture_output=True)
+
+    def _write(self, name: str, text: str) -> None:
+        target = self.path / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with io.open(target, "w", encoding="utf-8", newline="") as handle:
+            handle.write(text)
+
+    def _commit(self, message: str) -> None:
+        self._git("add", "-A")
+        self._git("commit", "-q", "-m", message)
+
+    def test_ロックファイルの中身は既定で候補にしない(self):
+        self._write("package-lock.json", self.LOCK)
+        self._commit("依存を追加")
+        report = scan(self.path)
+        self.assertEqual(report.total, 0)
+
+    def test_外したことを数えて残す(self):
+        # 黙って飛ばすと、利用者は全部を見たつもりになる。
+        self._write("package-lock.json", self.LOCK)
+        self._commit("依存を追加")
+        report = scan(self.path)
+        self.assertEqual(report.blobs_skipped, 1)
+        self.assertIn("package-lock.json", report.skipped_paths)
+
+    def test_明示すればロックファイルも走査する(self):
+        self._write("package-lock.json", self.LOCK)
+        self._commit("依存を追加")
+        report = scan(self.path, skip_lockfiles=False)
+        self.assertGreater(report.total, 0)
+        self.assertEqual(report.blobs_skipped, 0)
+
+    def test_ロックファイルを外しても他のファイルは見る(self):
+        self._write("package-lock.json", self.LOCK)
+        self._write("notes.md", "folder id: 1Kx9mQ2vTpL7rB4nW8sJfD6yHcE3aZgUo")
+        self._commit("追加")
+        report = scan(self.path)
+        self.assertIn("1Kx9mQ2vTpL7rB4nW8sJfD6yHcE3aZgUo", report.categories["opaque-id"])
+
+    def test_指定した除外が効く(self):
+        self._write("notes.md", "folder id: 1Kx9mQ2vTpL7rB4nW8sJfD6yHcE3aZgUo")
+        self._commit("メモを追加")
+        report = scan(self.path, exclude=("notes.md",))
+        self.assertEqual(report.total, 0)
+        self.assertEqual(report.blobs_skipped, 1)
+
+    def test_除外しても履歴の走査自体は止まらない(self):
+        # 除外はファイル単位であって、履歴を見ないことではない。
+        self._write("keep.md", "folder id: 1Kx9mQ2vTpL7rB4nW8sJfD6yHcE3aZgUo")
+        self._write("drop.md", "x")
+        self._commit("追加")
+        (self.path / "keep.md").unlink()
+        self._commit("削除")
+        report = scan(self.path, exclude=("drop.md",))
+        self.assertTrue(report.categories["opaque-id"]["1Kx9mQ2vTpL7rB4nW8sJfD6yHcE3aZgUo"].history_only)
 
 
 if __name__ == "__main__":

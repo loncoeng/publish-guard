@@ -129,6 +129,13 @@ confirms the result.
 **It cannot tell you what is sensitive.** `scan` offers candidates by shape. Only you
 know which of them matter.
 
+**`verify` has no exclusions.** `--exclude` belongs to `scan`, where leaving a file out
+costs you nothing but the quality of a suggestion. `verify` is the gate that stops a
+publish, and a gate with a bypass is not a gate. Lockfiles are no exception there:
+their contents are mostly checksums, but a private registry package name like
+`@acmecorp/internal-ui`, or an internal mirror URL, lands in them — **as ways a client
+gets identified go, that one is fairly typical.**
+
 **It cannot clean history for you.** If something is only in the history, no command
 here fixes that. Recreating the repository is the reliable answer, and `verify` tells
 you when you need to.
@@ -140,6 +147,8 @@ you when you need to.
 | `--no-history` | Scan only the HEAD tree. Fast, and misses exactly what this tool exists to find. For a pre-commit look, not a pre-publish check. |
 | `--current-branch` | Walk only the current branch's history instead of every ref. Note this still walks ancestors — it is about refs, not depth. |
 | `--limit N` | How many candidates to print per category in `scan` (default 20). |
+| `--exclude GLOB` | Leave a path out of `scan`. Repeatable. Matched against the file name as well as the full path, so `package-lock.json` also covers `web/package-lock.json`. |
+| `--include-lockfiles` | Scan dependency lockfiles too. They are left out by default. |
 
 ## Exit codes
 
@@ -173,6 +182,15 @@ because it was "just a test fixture."
 The tool worked. The person reading its output was the one who got it wrong. That is
 why `verify` exits non-zero and belongs in CI — not because you will forget, but
 because you will see the warning and talk yourself out of it.
+
+Later, running `scan` over a JavaScript repository before publishing it returned 197
+candidates. 155 of them were integrity hashes out of `package-lock.json`. I did not
+read the list; I audited that repository by hand instead. **A finding you cannot find
+is not much better than a miss.** That is when lockfiles became a default exclusion.
+The same repository now reports one candidate, and it is one worth a decision.
+
+Whatever gets excluded is printed back with a count and the file names. Skipping
+quietly would only trade one problem for another: believing you looked at everything.
 
 ## License
 

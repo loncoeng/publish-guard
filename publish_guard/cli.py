@@ -96,8 +96,21 @@ def _cmd_scan(args: argparse.Namespace) -> int:
         print(f"{repo} は git リポジトリではありません", file=sys.stderr)
         return 2
 
-    report = scan_mod.scan(repo, all_refs=not args.current_branch, history=not args.no_history)
+    report = scan_mod.scan(
+        repo,
+        all_refs=not args.current_branch,
+        history=not args.no_history,
+        exclude=tuple(args.exclude or ()),
+        skip_lockfiles=not args.include_lockfiles,
+    )
     print(f"走査: {report.commits_scanned} コミット / {report.blobs_scanned} blob")
+
+    # 除外したことは必ず表に出す。全部を見たと思われる方が危ない。
+    if report.blobs_skipped:
+        names = sorted(report.skipped_paths)
+        shown = ", ".join(names[:3]) + (" ..." if len(names) > 3 else "")
+        print(f"除外: {report.blobs_skipped} blob ({shown})")
+        print("      verify には効きません。除外したファイルも禁止語は検査されます。")
 
     if report.total == 0:
         print("候補は見つかりませんでした。")
@@ -139,6 +152,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_scan.add_argument("--current-branch", action="store_true",
                         help="全 ref ではなく現在のブランチの履歴だけを走査する")
     p_scan.add_argument("--limit", type=int, default=20, help="カテゴリごとの表示件数 (既定: 20)")
+    p_scan.add_argument("--exclude", action="append", metavar="GLOB",
+                        help="走査から外すパス (複数指定可)。ファイル名にもパス全体にも当たる")
+    p_scan.add_argument("--include-lockfiles", action="store_true",
+                        help="既定で外している依存関係のロックファイルも走査する")
     p_scan.set_defaults(func=_cmd_scan)
 
     p_verify = sub.add_parser("verify", help="禁止語が履歴を含めて消えたか検証する")
