@@ -1,6 +1,7 @@
 # publish-guard
 
 [![test](https://github.com/lon-coeng/publish-guard/actions/workflows/test.yml/badge.svg)](https://github.com/lon-coeng/publish-guard/actions/workflows/test.yml)
+[![PyPI](https://img.shields.io/pypi/v/publish-guard?color=1C4E93&label=PyPI)](https://pypi.org/project/publish-guard/)
 
 *[日本語版 / Japanese version](README.ja.md)*
 
@@ -49,7 +50,17 @@ directory path — the things that survive a careful read.
 
 ## Install
 
-Python 3.11 or later. No dependencies.
+```sh
+pip install publish-guard
+```
+
+Python 3.11 or later. No dependencies — `tomllib` landed in the standard library at 3.11.
+
+```sh
+publish-guard scan /path/to/repo
+```
+
+To run it straight from a clone instead:
 
 ```sh
 git clone https://github.com/lon-coeng/publish-guard.git
