@@ -1,0 +1,55 @@
+# タグを打つと PyPI へ公開する。
+#
+# 認証はトークンではなく OIDC で行う。GitHub が署名した短命の証明を PyPI が
+# 検証する仕組みなので、**盗める鍵がどこにも無い**。
+#
+# PyPI 側の設定 (Trusted Publisher) と、このファイル名・リポジトリ名・
+# environment 名が一致している必要がある。片方だけ変えると公開できなくなる。
+
+name: publish
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  test:
+    uses: ./.github/workflows/test.yml
+
+  publish:
+    needs: test
+    if: github.repository == 'lon-coeng/publish-guard'
+    runs-on: ubuntu-latest
+    # PyPI 側で environment を指定して信頼するため、こちらでも宣言する。
+    environment: pypi
+    permissions:
+      # OIDC の証明を発行するために要る。これが無いと認証できない。
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # タグと __init__.py の __version__ が食い違っていないか見る。
+      # ここを見ないと、v0.2.0 のタグで 0.1.0 が公開される事故が起きる。
+      - name: タグと version が一致しているか
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          tag=${GITHUB_REF#refs/tags/v}
+          pkg=$(python -c "import re,pathlib;print(re.search(r'__version__ = \"([^\"]+)\"', pathlib.Path('publish_guard/__init__.py').read_text(encoding='utf-8')).group(1))")
+          if [ "$tag" != "$pkg" ]; then
+            echo "タグ v$tag に対して __init__.py は $pkg です。合わせてください。"
+            exit 1
+          fi
+          echo "タグと version はどちらも $pkg です"
+
+      - name: 配布物を組み立てる
+        run: |
+          python -m pip install --upgrade build
+          python -m build
+
+      - name: PyPI へ公開する
+        uses: pypa/gh-action-pypi-publish@release/v1
