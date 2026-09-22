@@ -1,6 +1,6 @@
 # publish-guard
 
-[![test](https://github.com/lon-coeng/publish-guard/actions/workflows/test.yml/badge.svg)](https://github.com/lon-coeng/publish-guard/actions/workflows/test.yml)
+[![test](https://github.com/loncoeng/publish-guard/actions/workflows/test.yml/badge.svg)](https://github.com/loncoeng/publish-guard/actions/workflows/test.yml)
 [![PyPI](https://img.shields.io/pypi/v/publish-guard?color=1C4E93&label=PyPI)](https://pypi.org/project/publish-guard/)
 
 *[日本語版 / Japanese version](README.ja.md)*
@@ -63,7 +63,7 @@ publish-guard scan /path/to/repo
 To run it straight from a clone instead:
 
 ```sh
-git clone https://github.com/lon-coeng/publish-guard.git
+git clone https://github.com/loncoeng/publish-guard.git
 cd publish-guard
 python -m publish_guard.cli --help
 ```

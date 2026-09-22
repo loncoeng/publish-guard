@@ -19,7 +19,7 @@ jobs:
 
   publish:
     needs: test
-    if: github.repository == 'lon-coeng/publish-guard'
+    if: github.repository == 'loncoeng/publish-guard'
     runs-on: ubuntu-latest
     # PyPI 側で environment を指定して信頼するため、こちらでも宣言する。
     environment: pypi
