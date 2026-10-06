@@ -3,8 +3,6 @@
 [![test](https://github.com/loncoeng/publish-guard/actions/workflows/test.yml/badge.svg)](https://github.com/loncoeng/publish-guard/actions/workflows/test.yml)
 [![PyPI](https://img.shields.io/pypi/v/publish-guard?color=1C4E93&label=PyPI)](https://pypi.org/project/publish-guard/)
 
-*[日本語版 / Japanese version](README.ja.md)*
-
 Find what you forgot to remove before you publish a repository — **including the parts that are only in the history.**
 
 Built after publishing two repositories derived from client work, and discovering

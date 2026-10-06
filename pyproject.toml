@@ -46,7 +46,6 @@ packages = ["publish_guard"]
 include = [
   "publish_guard",
   "README.md",
-  "README.ja.md",
   "LICENSE",
   "examples",
 ]
