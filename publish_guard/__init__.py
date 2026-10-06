@@ -1,7 +1,7 @@
-"""publish-guard — 公開前のリポジトリから、消し忘れを見つける。
+"""publish-guard — find what you forgot to remove before publishing a repository.
 
-scan   … 消し忘れそうな値の候補を洗い出す（判定はしない）
-verify … 決めた禁止語が、履歴を含めて本当に消えたか検証する
+scan   … turn up candidate values you might have forgotten (it does not judge)
+verify … check that the terms you settled on are really gone, history included
 """
 
 __version__ = "0.1.1"

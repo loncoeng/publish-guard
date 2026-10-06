@@ -1,7 +1,12 @@
-"""別表記の展開に対する検査。
+"""Tests for expanding a term into its other forms.
 
-ここが壊れると、素の文字列だけを消して安心する状態に戻る。
-実際にそれで取りこぼしたケースを、そのままテストにしてある。
+Break this and you are back to removing the plain string and feeling safe.
+The cases that actually got missed are here as they happened.
+
+The non-ASCII literals below are inputs, not prose. Percent-encoding and
+\\uXXXX escaping only happen to non-ASCII text, so a non-ASCII term is the
+only thing that exercises them, and the encoded forms are written out by hand
+— computing them here would be asking the implementation to agree with itself.
 """
 
 from __future__ import annotations
@@ -10,85 +15,90 @@ import unittest
 
 from publish_guard.variants import expand, variants
 
+TERM = "取引先"
+TERM_PERCENT_UPPER = "%E5%8F%96%E5%BC%95%E5%85%88"
+TERM_PERCENT_LOWER = "%e5%8f%96%e5%bc%95%e5%85%88"
+TERM_JSON_ESCAPED = "\\u53d6\\u5f15\\u5148"
 
-class JapaneseTest(unittest.TestCase):
-    def test_パーセントエンコード形を含む(self):
-        # Sheets API の URL では日本語のシート名がこの形で現れる。
-        # テストの期待値にもこの形で書かれていて、素の文字列を
-        # 置換しただけでは残った。
-        self.assertIn("%E5%A3%B2%E4%B8%8A%E9%AB%98", variants("売上高"))
 
-    def test_小文字のパーセントエンコード形も含む(self):
-        # エンコードする実装によって %E7 と %e7 が揺れる。
-        self.assertIn("%e5%a3%b2%e4%b8%8a%e9%ab%98", variants("売上高"))
+class NonAsciiTest(unittest.TestCase):
+    def test_the_percent_encoded_form_is_included(self):
+        # This is the form a non-ASCII sheet name takes inside a Sheets API
+        # URL. A test's expected value was written that way, and replacing
+        # the plain string left it behind.
+        self.assertIn(TERM_PERCENT_UPPER, variants(TERM))
 
-    def test_JSONのユニコードエスケープ形を含む(self):
-        # ensure_ascii で書き出された JSON では目視で見つからない。
-        self.assertIn("\\u58f2\\u4e0a\\u9ad8", variants("売上高"))
+    def test_the_lower_case_percent_encoded_form_too(self):
+        # Which of %E5 and %e5 you get depends on who did the encoding.
+        self.assertIn(TERM_PERCENT_LOWER, variants(TERM))
 
-    def test_元の文字列自体も含む(self):
-        self.assertIn("売上高", variants("売上高"))
+    def test_the_json_unicode_escape_is_included(self):
+        # In JSON written with ensure_ascii, reading the file will not find it.
+        self.assertIn(TERM_JSON_ESCAPED, variants(TERM))
 
-    def test_日本語には大文字小文字の変種を作らない(self):
-        # 意味のない候補を増やすと走査が遅くなるだけ。
-        self.assertEqual(
-            len([v for v in variants("売上高") if v == "売上高"]), 1
-        )
+    def test_the_term_itself_is_included(self):
+        self.assertIn(TERM, variants(TERM))
+
+    def test_no_case_variants_are_made_for_non_ascii(self):
+        # Pointless candidates only make the scan slower.
+        self.assertEqual(len([v for v in variants(TERM) if v == TERM]), 1)
 
 
 class AsciiTest(unittest.TestCase):
-    def test_大文字小文字の変種を含む(self):
-        # 社名は環境変数で ACMECORP、コメントで Acmecorp のように現れる。
+    def test_case_variants_are_included(self):
+        # A company name turns up as ACMECORP in an environment variable and
+        # as Acmecorp in a comment.
         got = variants("acmecorp")
         for expected in ("acmecorp", "ACMECORP", "Acmecorp"):
             self.assertIn(expected, got)
 
-    def test_内部の大文字は復元できない(self):
-        # acmecorp から AcmeCorp は導けない。語の境界がどこか分からないため。
-        # キャメルケースで書かれる可能性があるなら、設定に両方書く必要がある。
+    def test_internal_capitals_cannot_be_recovered(self):
+        # AcmeCorp does not follow from acmecorp, because there is no telling
+        # where the word boundary is. If camel case is a possibility, both
+        # belong in the config.
         self.assertNotIn("AcmeCorp", variants("acmecorp"))
 
-    def test_ASCIIにはパーセントエンコード形を作らない(self):
-        # ASCII はエンコードしても変わらないので候補を増やさない。
+    def test_no_percent_encoding_is_made_for_ascii(self):
+        # ASCII survives encoding unchanged, so there is no candidate to add.
         self.assertNotIn("%61%63%6d%65%63%6f%72%70", variants("acmecorp"))
 
 
 class RegexEscapeTest(unittest.TestCase):
-    def test_ドットをエスケープした形を含む(self):
-        # 正規表現リテラルの中ではこう書かれている。
+    def test_the_dot_escaped_form_is_included(self):
+        # This is how it is written inside a regex literal.
         self.assertIn("automation\\.once\\.json", variants("automation.once.json"))
 
-    def test_ドットが無ければエスケープ形は作らない(self):
+    def test_nothing_is_escaped_when_there_is_no_dot(self):
         self.assertNotIn("acme\\.", variants("acme"))
 
-    def test_ホスト名でもエスケープ形を作る(self):
+    def test_hostnames_get_an_escaped_form_too(self):
         self.assertIn("admin\\.acme\\.example", variants("admin.acme.example"))
 
 
 class OrderingTest(unittest.TestCase):
-    def test_長い順に返す(self):
-        got = variants("売上高")
+    def test_longest_first(self):
+        got = variants(TERM)
         self.assertEqual(got, sorted(got, key=len, reverse=True))
 
-    def test_expandも長い順に返す(self):
-        # 置換に使うとき、短い語を先に当てると長い語が壊れる。
-        # 「平均売上高」を「売上高」より先に処理する必要がある。
-        got = expand(["売上高", "平均売上高"])
+    def test_expand_is_longest_first_too(self):
+        # Used for replacement, taking the short term first mangles the long
+        # one: "主要取引先" has to be handled before "取引先".
+        got = expand([TERM, "主要" + TERM])
         self.assertEqual(got, sorted(got, key=len, reverse=True))
 
-    def test_expandは重複を除く(self):
+    def test_expand_deduplicates(self):
         got = expand(["acme", "acme"])
         self.assertEqual(len(got), len(set(got)))
 
 
 class EdgeCaseTest(unittest.TestCase):
-    def test_空文字は候補に残さない(self):
+    def test_the_empty_string_is_not_a_candidate(self):
         self.assertNotIn("", variants(""))
         self.assertNotIn("", expand(["", "acme"]))
 
-    def test_日本語とASCIIが混ざる語も扱える(self):
-        got = variants("Acme売上高")
-        self.assertIn("Acme売上高", got)
+    def test_a_term_mixing_ascii_and_non_ascii_works(self):
+        got = variants("Acme" + TERM)
+        self.assertIn("Acme" + TERM, got)
         self.assertTrue(any(v.startswith("%") or "\\u" in v for v in got))
 
 

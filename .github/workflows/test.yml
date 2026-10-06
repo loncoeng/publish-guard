@@ -5,8 +5,8 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
-  # publish から呼ぶ。テストを通っていないものを公開しないため、
-  # 同じ内容を publish 側に書き写さずに再利用する。
+  # Called from publish. Reused rather than copied over there, so that nothing
+  # gets published without having passed these.
   workflow_call:
 
 # The token this job is given. Without this block it gets the repository's
@@ -25,17 +25,17 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          # verify は履歴を走査する。浅い clone だと自分自身を
-          # 検査するテストが意味を持たなくなる。
+          # verify reads the history. With a shallow clone, the tests that
+          # scan this repository itself stop meaning anything.
           fetch-depth: 0
 
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: ${{ matrix.python-version }}
 
-      # 依存はゼロ。tomllib は 3.11 で標準ライブラリに入った。
-      - name: 単体テスト
+      # No dependencies. tomllib became part of the standard library in 3.11.
+      - name: Unit tests
         run: python -m unittest discover -s tests -t . -v
 
-      - name: 自分自身を scan にかける
+      - name: Scan this repository with itself
         run: python -m publish_guard.cli scan .

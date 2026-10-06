@@ -1,5 +1,5 @@
-# 実行時の依存はゼロ。tomllib は 3.11 で標準ライブラリに入ったので、
-# それ以降なら追加インストール無しで動く。
+# No runtime dependencies. tomllib became part of the standard library in 3.11,
+# so from there on this installs nothing of its own.
 
 [build-system]
 requires = ["hatchling"]
@@ -38,7 +38,7 @@ publish-guard = "publish_guard.cli:main"
 [tool.hatch.version]
 path = "publish_guard/__init__.py"
 
-# 配るのはパッケージ本体だけ。テストと設定例は入れない。
+# Only the package itself ships. The tests and the example config do not.
 [tool.hatch.build.targets.wheel]
 packages = ["publish_guard"]
 

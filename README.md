@@ -41,10 +41,11 @@ publish-guard verify <repo> -c <config.toml>   confirm the terms you chose are r
 term into the forms it might actually appear as. It checks commit messages and author
 metadata too. It exits `1` when anything is found, so it works in CI.
 
-`scan` does not decide anything. Whether `売上高` is a client-specific metric or a
-generic word is a judgement only someone who knows the project can make. What a machine
-does better is spotting a 40-character opaque identifier or a username buried in a home
-directory path — the things that survive a careful read.
+`scan` does not decide anything. Whether `monthly churn cohort` is a metric name
+specific to one client or an ordinary phrase is a judgement only someone who knows the
+project can make. What a machine does better is spotting a 40-character opaque
+identifier or a username buried in a home directory path — the things that survive a
+careful read.
 
 ## Install
 
@@ -75,13 +76,17 @@ python -m publish_guard.cli scan /path/to/repo
 ```
 
 ```
-[opaque-id] identifiers 20 characters or longer
+scanned 2 commits, 4 blobs
+
+2 candidates
+
+[home-path] a home directory path; usually with a username in it
+  /home/acme-operator (history only)
+    systemd/worker.service
+
+[opaque-id] a random identifier of 20 characters or more; the shape of a spreadsheet or folder id
   1Kx9mQ2vTpL7rB4nW8sJfD6yHcE3aZgUo
     config/settings.json, docs/setup.md
-
-[home-path] home directory paths, often containing a username
-  /home/acme-operator  (history only)
-    systemd/worker.service
 ```
 
 **2. Decide what to remove, and record the decision.**
@@ -93,7 +98,7 @@ terms = [
   "AcmeCorp",
   "1Kx9mQ2vTpL7rB4nW8sJfD6yHcE3aZgUo",
   "/home/acme-operator",
-  "売上高",
+  "取引先",
 ]
 ```
 
@@ -106,18 +111,25 @@ python -m publish_guard.cli verify /path/to/repo -c publish-guard.toml
 ```
 
 ```
-scanned: 42 commits / 310 blobs / 4 terms
+scanned 2 commits, 4 blobs, against 4 terms
 
-found: 3 results / 1 term
+Found 4 occurrences of 3 terms
 
-  売上高
-    %E5%A3%B2%E4%B8%8A%E9%AB%98  ← other form
+  /home/acme-operator
+    /home/acme-operator
+      systemd/worker.service  (history only)
+
+  取引先
+    %E5%8F%96%E5%BC%95%E5%85%88  ← written differently
       test/import-verification.test.js  (still present)
 
-Some results are history only. Editing the file will not remove them.
-git push --force does not remove the objects on GitHub either.
-To be certain, recreate the repository.
+Some of these are in the history only. Editing the file will not remove them.
+Nor will git push --force: the objects stay on GitHub's side.
+To be certain they are gone, recreate the repository.
 ```
+
+The last one is the point of the term expansion: `取引先` was written into the config,
+and what was actually sitting in the repository was its percent-encoded form.
 
 ## In CI
 

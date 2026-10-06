@@ -1,10 +1,11 @@
-# タグを打つと PyPI へ公開する。
+# Publish to PyPI when a tag is pushed.
 #
-# 認証はトークンではなく OIDC で行う。GitHub が署名した短命の証明を PyPI が
-# 検証する仕組みなので、**盗める鍵がどこにも無い**。
+# Authenticated with OIDC rather than a token: GitHub signs a short-lived
+# assertion and PyPI verifies it, so **there is no key anywhere to steal**.
 #
-# PyPI 側の設定 (Trusted Publisher) と、このファイル名・リポジトリ名・
-# environment 名が一致している必要がある。片方だけ変えると公開できなくなる。
+# The Trusted Publisher configuration on PyPI's side has to agree with this
+# file's name, the repository name and the environment name. Change one of them
+# on its own and publishing stops working.
 
 name: publish
 
@@ -27,10 +28,11 @@ jobs:
     needs: test
     if: github.repository == 'loncoeng/publish-guard'
     runs-on: ubuntu-latest
-    # PyPI 側で environment を指定して信頼するため、こちらでも宣言する。
+    # PyPI trusts this by environment, so it is declared on this side too.
     environment: pypi
     permissions:
-      # OIDC の証明を発行するために要る。これが無いと認証できない。
+      # Needed to issue the OIDC assertion. Without it there is no way to
+      # authenticate at all.
       id-token: write
       contents: read
     steps:
@@ -39,23 +41,23 @@ jobs:
         with:
           python-version: "3.12"
 
-      # タグと __init__.py の __version__ が食い違っていないか見る。
-      # ここを見ないと、v0.2.0 のタグで 0.1.0 が公開される事故が起きる。
-      - name: タグと version が一致しているか
+      # Check the tag against __version__ in __init__.py. Without this, a
+      # v0.2.0 tag quietly publishes 0.1.0.
+      - name: Check the tag matches the version
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
           tag=${GITHUB_REF#refs/tags/v}
           pkg=$(python -c "import re,pathlib;print(re.search(r'__version__ = \"([^\"]+)\"', pathlib.Path('publish_guard/__init__.py').read_text(encoding='utf-8')).group(1))")
           if [ "$tag" != "$pkg" ]; then
-            echo "タグ v$tag に対して __init__.py は $pkg です。合わせてください。"
+            echo "The tag says v$tag and __init__.py says $pkg. Make them agree."
             exit 1
           fi
-          echo "タグと version はどちらも $pkg です"
+          echo "Tag and version are both $pkg"
 
-      - name: 配布物を組み立てる
+      - name: Build the distributions
         run: |
           python -m pip install --upgrade build
           python -m build
 
-      - name: PyPI へ公開する
+      - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1

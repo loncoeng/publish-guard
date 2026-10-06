@@ -1,13 +1,14 @@
-"""消し忘れそうな値の候補を、履歴を含めて洗い出す。
+"""Turn up values you might have forgotten to remove, history included.
 
-これは判定ではなく提案である。「売上高」が業務固有の指標名で、
-「データインポート」が一般的な UI ラベルだという区別は、その
-プロジェクトを知らないとつかない。機械にできるのは「人間なら
-見落としそうな形をしたもの」を集めて並べるところまでで、
-消すかどうかは人間が決める。
+This suggests; it does not judge. Whether "monthly churn cohort" is a metric
+name specific to one client, while "data import" is an ordinary UI label, is
+not something you can tell without knowing the project. What a machine can do
+is collect the things shaped like what a person would miss, and lay them out.
+Removing them is a decision for a person.
 
-裏を返せば、機械の方が確実な部分もある。40文字のランダム文字列や、
-ホームディレクトリに埋め込まれたユーザー名は、目視ではまず気付かない。
+Which cuts the other way too: there are parts a machine is better at. A
+forty-character random string, or a username buried in a home directory path,
+is something you will not spot by reading.
 """
 
 from __future__ import annotations
@@ -20,14 +21,14 @@ from pathlib import Path
 
 from . import gitrepo
 
-# 依存関係のロックファイル。既定で scan の対象から外す。
+# Dependency lockfiles, left out of scan by default.
 #
-# 中身は機械が書いたチェックサムの羅列で、識別子の形をしている。
-# package-lock.json 一つで opaque-id が百数十件出て、本当に見るべき
-# 候補がその中に埋もれる。候補が200件並べば人間は読まなくなり、
-# 除外しないことがかえって見落としを生む。
+# They hold machine-written checksums, which are shaped exactly like
+# identifiers. One package-lock.json produces a hundred-odd opaque-id hits and
+# buries the candidates that matter. Two hundred candidates is a list nobody
+# reads, so not excluding these is what actually causes something to be missed.
 #
-# 外すのは scan だけで、verify には効かせない。詳しくは verify.py。
+# This applies to scan only, never to verify. See verify.py.
 DEFAULT_SKIP = (
     "package-lock.json", "npm-shrinkwrap.json", "yarn.lock", "pnpm-lock.yaml",
     "bun.lock", "bun.lockb", "deno.lock",
@@ -37,7 +38,7 @@ DEFAULT_SKIP = (
     "pubspec.lock", "Podfile.lock",
 )
 
-# プレースホルダとして広く使われるもの。候補から外す。
+# Widely used as placeholders. Left out of the candidates.
 PLACEHOLDER_HOSTS = {
     "example.com", "example.org", "example.net", "localhost",
     "test.com", "invalid", "example-project",
@@ -55,7 +56,7 @@ COMMON_HOSTS = {
 RULES: list[tuple[str, str, re.Pattern[str]]] = [
     (
         "secret",
-        "秘密情報の形をしたもの。見つかったら公開の可否以前に無効化する",
+        "shaped like a credential; revoke it before worrying about publishing",
         re.compile(
             r"BEGIN [A-Z ]*PRIVATE KEY"
             r"|sk-[A-Za-z0-9]{20,}"
@@ -67,27 +68,27 @@ RULES: list[tuple[str, str, re.Pattern[str]]] = [
     ),
     (
         "email",
-        "実在しそうなメールアドレス",
+        "an email address that looks like somebody's",
         re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}"),
     ),
     (
         "home-path",
-        "ホームディレクトリのパス。ユーザー名が埋まっていることが多い",
+        "a home directory path; usually with a username in it",
         re.compile(r"/home/[A-Za-z0-9._\-]+|/Users/[A-Za-z0-9._\-]+|C:\\\\?Users\\\\?[A-Za-z0-9._\-]+"),
     ),
     (
         "uuid",
-        "UUID。リソースの識別子であることが多い",
+        "a UUID; usually the identifier of some resource",
         re.compile(r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b"),
     ),
     (
         "opaque-id",
-        "20文字以上のランダムな識別子。スプレッドシートIDやフォルダIDの形",
+        "a random identifier of 20 characters or more; the shape of a spreadsheet or folder id",
         re.compile(r"\b[A-Za-z0-9_\-]{20,}\b"),
     ),
     (
         "host",
-        "外部ホスト名。対象システムを特定しうる",
+        "an external hostname; can identify the system involved",
         re.compile(r"https?://([A-Za-z0-9.\-]+)"),
     ),
 ]
@@ -105,9 +106,10 @@ class ScanReport:
     categories: dict[str, dict[str, Candidate]] = field(default_factory=lambda: defaultdict(dict))
     blobs_scanned: int = 0
     commits_scanned: int = 0
-    # 除外したものは必ず数えて表に出す。黙って飛ばすと、利用者は
-    # 全部を見たつもりになる。見ていない範囲があることは、
-    # 見ていない本人に伝わらなければ意味がない。
+    # What was skipped is counted and reported, always. Skip something quietly
+    # and the user believes everything was looked at. There being a part that
+    # was not looked at is worth nothing unless it reaches the person who did
+    # not look at it.
     skipped_paths: set[str] = field(default_factory=set)
     blobs_skipped: int = 0
 
@@ -117,11 +119,11 @@ class ScanReport:
 
 
 def should_skip(path: str, patterns: tuple[str, ...]) -> bool:
-    """パスが除外パターンに当たるか。
+    """Whether a path matches one of the exclusion patterns.
 
-    パターンはファイル名にもパス全体にも当てる。`package-lock.json` と
-    書いたときに、リポジトリ直下のものだけが外れて `web/package-lock.json`
-    が残る、という挙動は意図に反する。
+    Patterns are matched against the filename as well as the whole path.
+    Writing `package-lock.json` and getting only the one at the root excluded,
+    leaving `web/package-lock.json` in, is not what anybody means by it.
     """
     name = path.rsplit("/", 1)[-1]
     return any(
@@ -136,16 +138,15 @@ def _looks_like_placeholder(value: str) -> bool:
         return True
     if lowered.startswith("replace-with") or lowered.startswith("replace_with"):
         return True
-    # EXAMPLE_SPREADSHEET_ID のような全大文字のプレースホルダ
+    # All-caps placeholders, as in EXAMPLE_SPREADSHEET_ID
     if value.isupper() and "_" in value:
         return True
     return False
 
 
 def _keep(category: str, value: str) -> bool:
-    # プレースホルダの判定は全カテゴリに効かせる。ここを分岐の中に
-    # 入れると、host のようにサブドメインが付いた形
-    # (api.example.com) を取りこぼす。
+    # The placeholder check applies to every category. Inside the branch below
+    # it would miss the host form with a subdomain on it (api.example.com).
     if _looks_like_placeholder(value):
         return False
 
@@ -153,10 +154,12 @@ def _keep(category: str, value: str) -> bool:
         return value not in PLACEHOLDER_HOSTS and value not in COMMON_HOSTS
 
     if category == "opaque-id":
-        # 英字だけ・数字だけの長い語は識別子ではなく普通の単語や定数のことが多い。
+        # A long run of only letters or only digits is usually an ordinary word
+        # or a constant, not an identifier.
         if value.isalpha() or value.isdigit():
             return False
-        # camelCase の長い関数名などを除く。識別子は大小と数字が混ざる。
+        # Leaves out long camelCase function names: an identifier mixes case
+        # and digits.
         has_digit = any(c.isdigit() for c in value)
         has_alpha = any(c.isalpha() for c in value)
         if not (has_digit and has_alpha):

@@ -1,11 +1,12 @@
-"""Git リポジトリから、履歴を含む全てのファイル内容を取り出す。
+"""Get every file's contents out of a git repository, history included.
 
-作業ツリーだけを見ても意味がない。ファイルから値を消しても、
-それ以前のコミットには残っており `git log -p` で読める。公開する
-かどうかを判断するなら、見るべきは全コミットの全 blob である。
+Looking at the working tree is pointless on its own. Remove a value from a
+file and it is still in the commits before that one, readable with
+`git log -p`. Deciding whether something can be published means looking at
+every blob in every commit.
 
-同じ blob が複数のコミットに現れるため、SHA で重複を除く。
-そうしないとコミット数に比例して無駄に走査することになる。
+The same blob appears in many commits, so they are deduplicated by SHA.
+Without that, the work grows with the number of commits for no reason.
 """
 
 from __future__ import annotations
@@ -32,7 +33,7 @@ def _git(repo: Path, *args: str) -> str:
     )
     if result.returncode != 0:
         message = result.stderr.decode("utf-8", "replace").strip()
-        raise NotAGitRepository(message or f"git {' '.join(args)} に失敗しました")
+        raise NotAGitRepository(message or f"git {' '.join(args)} failed")
     return result.stdout.decode("utf-8", "replace")
 
 
@@ -45,16 +46,16 @@ def is_git_repository(repo: Path) -> bool:
 
 
 def commits(repo: Path, *, all_refs: bool = True) -> list[str]:
-    """走査対象のコミットを返す。既定は全ての ref から到達できるもの。"""
+    """The commits to scan. By default, everything reachable from any ref."""
     args = ["rev-list", "--all"] if all_refs else ["rev-list", "HEAD"]
     return _git(repo, *args).split()
 
 
 def blobs(repo: Path, *, all_refs: bool = True, history: bool = True) -> list[Blob]:
-    """blob を SHA で重複を除いて返す。
+    """The blobs, deduplicated by SHA.
 
-    history=False なら HEAD の tree だけを見る。速いが、履歴に残った
-    ものは見つからない。コミット前の下見にだけ使うこと。
+    With history=False only HEAD's tree is read. Faster, and it finds nothing
+    left behind in the history — for a look before committing, and nothing else.
     """
     if not history:
         return _head_tree(repo)
@@ -83,7 +84,7 @@ def _head_tree(repo: Path) -> list[Blob]:
 
 
 def read_blob(repo: Path, sha: str) -> str | None:
-    """blob をテキストとして読む。バイナリなら None。"""
+    """Read a blob as text. None if it is binary."""
     raw = subprocess.run(
         ["git", "-C", str(repo), "cat-file", "-p", sha],
         capture_output=True,
@@ -97,11 +98,11 @@ def read_blob(repo: Path, sha: str) -> str | None:
 
 
 def metadata(repo: Path, *, all_refs: bool = True) -> str:
-    """コミットメッセージ・著者名・メールアドレスをまとめて返す。
+    """Commit messages, author names and email addresses, all together.
 
-    ファイルの中身が綺麗でも、コミットメッセージに残っていることがある。
-    「業種が割れる項目を外す」のようなメッセージは、何を隠したかを
-    そのまま教えてしまう。
+    File contents can be spotless while a commit message still says it. A
+    message like "drop the fields that give the industry away" hands over
+    exactly what was being hidden.
     """
     args = ["log", "--format=%an%n%ae%n%cn%n%ce%n%s%n%b"]
     if all_refs:

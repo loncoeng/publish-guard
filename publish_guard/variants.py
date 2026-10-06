@@ -1,26 +1,29 @@
-"""同じ値が別の表記で現れる、その別表記を列挙する。
+"""Enumerate the other ways the same value gets written.
 
-素の文字列だけを検索すると取りこぼす。実際に踏んだ例を挙げる。
+Searching for the plain string alone misses things. These are the ones that
+were actually hit.
 
-  日本語のシート名は Sheets API の URL でパーセントエンコードされ、
-  テストの期待値にその形で書かれていた。素の文字列を置換しても
-  期待値は変わらず、テストが落ちて初めて気付いた。
+  A non-ASCII sheet name arrives percent-encoded inside a Sheets API URL, and
+  a test's expected value had been written in that form. Replacing the plain
+  string left the expectation untouched, and the first anyone knew of it was a
+  failing test.
 
-  ファイル名は正規表現リテラルの中でドットがエスケープされていた。
-  "automation.once.json" を置換しても "automation\\.once\\.json" は残った。
+  A filename had its dots escaped inside a regex literal. Replacing
+  "automation.once.json" left "automation\\.once\\.json" behind.
 
-  組織名は大文字・キャメルケースの変種でも現れた。ACMECORP / AcmeCorp /
-  acmecorp の3通りがあり、小文字だけ消して安心していた。
+  An organisation name turned up in upper case and in camel case too —
+  ACMECORP, AcmeCorp and acmecorp — and only the lower-case one had been
+  removed.
 
-  JSON に ensure_ascii で書き出された日本語は \\uXXXX 形式になる。
-  ファイルを開いても目視では見つからない。
+  Non-ASCII text written out by json.dumps with ensure_ascii becomes \\uXXXX.
+  Opening the file and reading it will not find it.
 
-このモジュールは、ひとつの語からこれら全ての表記を機械的に導く。
-人間が思い出す方式に頼らないためにある。
+This module derives all of those from one term, mechanically. It is here so
+that nothing depends on a person remembering them.
 
-導けないものもある。acmecorp から AcmeCorp は導けない。語の境界が
-どこにあるか判断できないためで、キャメルケースで書かれる可能性が
-あるなら設定に両方書く必要がある。ここは正直に限界としておく。
+Some of it cannot be derived. AcmeCorp does not follow from acmecorp, because
+there is no telling where the word boundaries are — if camel case is a
+possibility, both belong in the config. That is a limit, stated as one.
 """
 
 from __future__ import annotations
@@ -35,24 +38,24 @@ def _percent(value: str, *, upper: bool) -> str:
 
 
 def _json_escaped(value: str) -> str:
-    # json.dumps は ensure_ascii=True で非ASCIIを \uXXXX にする。
-    # 前後の引用符は落として中身だけ返す。
+    # json.dumps with ensure_ascii=True turns non-ASCII into \uXXXX. The
+    # surrounding quotes come off; only the contents are wanted.
     return json.dumps(value, ensure_ascii=True)[1:-1]
 
 
 def _regex_escaped(value: str) -> str:
-    # 正規表現リテラルの中では . が \. と書かれる。re.escape は
-    # 他の記号も潰してしまい実際の書かれ方から離れるため、
-    # 現実に遭遇するドットだけを対象にする。
+    # Inside a regex literal, . is written \. re.escape would flatten the
+    # other punctuation too and drift from how things are actually written,
+    # so this covers the dot and nothing else.
     return value.replace(".", "\\.")
 
 
 def variants(term: str) -> list[str]:
-    """term が現れうる表記を、長い順に返す。
+    """Every way term might appear, longest first.
 
-    長い順に返すのは、置換に使うときに部分一致で壊さないため。
-    「月間平均売上高」を先に処理しないと、「売上高」の置換で
-    前半が取り残された文字列ができあがる。
+    Longest first so that using these for replacement cannot break on a
+    partial match. Without handling "average monthly revenue" before
+    "revenue", replacing the shorter one leaves a mangled remainder.
     """
     found: set[str] = {term}
 
@@ -63,7 +66,7 @@ def variants(term: str) -> list[str]:
         found.add(_percent(term, upper=False))
         found.add(_json_escaped(term))
     else:
-        # ASCII の語は大文字小文字の揺れで現れる。
+        # An ASCII term shows up with the case shifted around.
         found.add(term.upper())
         found.add(term.lower())
         if term:
@@ -71,17 +74,17 @@ def variants(term: str) -> list[str]:
 
     if "." in term:
         found.add(_regex_escaped(term))
-        # ドットを含む ASCII 語は、エスケープ形の大小変種もありうる。
+        # An ASCII term with a dot can also appear escaped and recased.
         if not has_non_ascii:
             found.add(_regex_escaped(term.lower()))
 
-    # 空文字は探索対象にならないので落とす。
+    # An empty string is not something to search for.
     found.discard("")
     return sorted(found, key=len, reverse=True)
 
 
 def expand(terms: list[str]) -> list[str]:
-    """複数の語をまとめて展開し、重複を除いて長い順に返す。"""
+    """Expand several terms at once, deduplicated and longest first."""
     seen: set[str] = set()
     for term in terms:
         seen.update(variants(term))

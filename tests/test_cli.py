@@ -1,8 +1,8 @@
-"""CLI の入口に対する検査。
+"""Tests for the command line entry point.
 
-利用者が最初にぶつかるのは設定ファイルの間違いで、そこで生の
-トレースバックが出ると「壊れているツール」に見える。終了コードも
-CI の挙動に直結するので、ここは仕様として固定しておく。
+The first thing a user runs into is a mistake in the config file, and a raw
+traceback there makes the tool look broken. The exit codes decide what CI
+does, so they are pinned here as the contract they are.
 """
 
 from __future__ import annotations
@@ -16,6 +16,11 @@ import unittest
 from pathlib import Path
 
 from publish_guard.cli import ConfigError, _load_terms, main
+
+# A non-ASCII term, as the fixture for the percent-encoding and \uXXXX paths.
+# It is an ordinary Japanese word, there because that is what a non-ASCII term
+# looks like — not because the text around it is Japanese.
+NON_ASCII_TERM = "取引先"
 
 
 class LoadTermsTest(unittest.TestCase):
@@ -31,38 +36,38 @@ class LoadTermsTest(unittest.TestCase):
             handle.write(text)
         return path
 
-    def test_設定ファイルが無ければ案内を出す(self):
+    def test_a_missing_config_says_so(self):
         with self.assertRaises(ConfigError) as ctx:
             _load_terms(self.dir / "missing.toml")
-        self.assertIn("見つかりません", str(ctx.exception))
+        self.assertIn("no config file", str(ctx.exception))
 
-    def test_書式が壊れていれば場所を示す(self):
+    def test_a_malformed_config_says_where(self):
         path = self._write('[forbidden]\nterms = [ broken\n')
         with self.assertRaises(ConfigError) as ctx:
             _load_terms(path)
-        self.assertIn("書式", str(ctx.exception))
+        self.assertIn("malformed", str(ctx.exception))
 
-    def test_termsが配列でなければ弾く(self):
+    def test_terms_that_are_not_an_array_are_refused(self):
         path = self._write('[forbidden]\nterms = "AcmeCorp"\n')
         with self.assertRaises(ConfigError):
             _load_terms(path)
 
-    def test_空文字は落とす(self):
+    def test_empty_strings_are_dropped(self):
         path = self._write('[forbidden]\nterms = ["AcmeCorp", ""]\n')
         self.assertEqual(_load_terms(path), ["AcmeCorp"])
 
-    def test_正常な設定を読める(self):
-        path = self._write('[forbidden]\nterms = ["AcmeCorp", "売上高"]\n')
-        self.assertEqual(_load_terms(path), ["AcmeCorp", "売上高"])
+    def test_a_valid_config_loads(self):
+        path = self._write(f'[forbidden]\nterms = ["AcmeCorp", "{NON_ASCII_TERM}"]\n')
+        self.assertEqual(_load_terms(path), ["AcmeCorp", NON_ASCII_TERM])
 
 
 class ExitCodeTest(unittest.TestCase):
-    """CI に置く以上、終了コードは仕様である。"""
+    """Put in CI, the exit codes are the contract."""
 
     @staticmethod
     def _run(argv: list[str]) -> int:
-        # main は人間向けに標準出力へ書く。テストの出力に混ざると
-        # 何が失敗したのか読めなくなるので捨てる。
+        # main writes to stdout for a person to read. Mixed into the test
+        # output it buries what actually failed, so it goes nowhere.
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             return main(argv)
 
@@ -76,7 +81,7 @@ class ExitCodeTest(unittest.TestCase):
         with io.open(self.repo / "a.txt", "w", encoding="utf-8", newline="") as handle:
             handle.write("AcmeCorp")
         self._git("add", "-A")
-        self._git("commit", "-q", "-m", "初期")
+        self._git("commit", "-q", "-m", "initial")
 
     def tearDown(self) -> None:
         shutil.rmtree(self.dir, ignore_errors=True)
@@ -90,23 +95,23 @@ class ExitCodeTest(unittest.TestCase):
             handle.write("[forbidden]\nterms = [" + terms + "]\n")
         return path
 
-    def test_検出なしなら0(self):
+    def test_nothing_found_is_0(self):
         code = self._run(["verify", str(self.repo), "-c", str(self._config('"Nothing"'))])
         self.assertEqual(code, 0)
 
-    def test_検出ありなら1(self):
+    def test_something_found_is_1(self):
         code = self._run(["verify", str(self.repo), "-c", str(self._config('"AcmeCorp"'))])
         self.assertEqual(code, 1)
 
-    def test_設定ファイルが無ければ2(self):
+    def test_a_missing_config_is_2(self):
         code = self._run(["verify", str(self.repo), "-c", str(self.dir / "missing.toml")])
         self.assertEqual(code, 2)
 
-    def test_gitリポジトリでなければ2(self):
+    def test_not_a_git_repository_is_2(self):
         code = self._run(["verify", str(self.dir), "-c", str(self._config('"AcmeCorp"'))])
         self.assertEqual(code, 2)
 
-    def test_scanはgitリポジトリでなければ2(self):
+    def test_scan_on_something_that_is_not_a_repository_is_2(self):
         self.assertEqual(self._run(["scan", str(self.dir)]), 2)
 
 

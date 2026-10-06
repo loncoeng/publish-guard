@@ -1,7 +1,7 @@
-"""履歴を含めた検証に対する検査。
+"""Tests for verification across the history.
 
-このツールの存在理由がここにある。ファイルから消しただけでは
-消えないという事実を、実際に git リポジトリを作って確かめる。
+This is where the reason for the tool lives: that removing something from a
+file does not remove it. Checked against an actual git repository.
 """
 
 from __future__ import annotations
@@ -15,6 +15,12 @@ from pathlib import Path
 
 from publish_guard.verify import verify
 
+# A non-ASCII term and the percent-encoded form of it, both written out by
+# hand. Computing the second one with urllib.parse.quote would be asking the
+# implementation to agree with itself; a literal is what makes this a test.
+NON_ASCII_TERM = "取引先"
+NON_ASCII_PERCENT = "%E5%8F%96%E5%BC%95%E5%85%88"
+
 
 def git(repo: Path, *args: str) -> None:
     subprocess.run(
@@ -25,7 +31,7 @@ def git(repo: Path, *args: str) -> None:
 
 
 class RepoFixture:
-    """テスト用の git リポジトリを作る。"""
+    """A git repository to test against."""
 
     def __init__(self) -> None:
         self.path = Path(tempfile.mkdtemp(prefix="publish-guard-test-"))
@@ -54,60 +60,60 @@ class HistoryTest(unittest.TestCase):
     def tearDown(self) -> None:
         self.repo.cleanup()
 
-    def test_ファイルから消しても履歴から見つける(self):
-        # これがこのツールの中心。編集コミットを積んでも消えない。
+    def test_removed_from_the_file_but_found_in_the_history(self):
+        # The middle of this tool. Committing the edit does not remove it.
         self.repo.write("config.json", '{"org": "AcmeCorp"}')
-        self.repo.commit("初期")
+        self.repo.commit("initial")
         self.repo.write("config.json", '{"org": "Example"}')
-        self.repo.commit("組織名を差し替える")
+        self.repo.commit("swap the organisation name out")
 
         report = verify(self.repo.path, ["AcmeCorp"])
         self.assertFalse(report.ok)
         self.assertTrue(any(f.matched == "AcmeCorp" for f in report.findings))
 
-    def test_履歴を見なければ見逃す(self):
-        # --no-history の挙動。これがこのツールを使う意味を裏から示す。
-        # HEAD の tree だけを見れば消えたように見えてしまう。
+    def test_not_reading_the_history_misses_it(self):
+        # What --no-history does, which is the argument for the tool read
+        # backwards: HEAD's tree alone makes it look gone.
         self.repo.write("config.json", '{"org": "AcmeCorp"}')
-        self.repo.commit("初期")
+        self.repo.commit("initial")
         self.repo.write("config.json", '{"org": "Example"}')
-        self.repo.commit("組織名を差し替える")
+        self.repo.commit("swap the organisation name out")
 
         self.assertTrue(verify(self.repo.path, ["AcmeCorp"], history=False).ok)
         self.assertFalse(verify(self.repo.path, ["AcmeCorp"], history=True).ok)
 
-    def test_現在のブランチだけの走査でも祖先は辿る(self):
-        # all_refs=False は「他の ref を見ない」であって
-        # 「履歴を見ない」ではない。混同しやすいので明示する。
+    def test_scanning_one_branch_still_walks_its_ancestors(self):
+        # all_refs=False means "do not read the other refs", not "do not read
+        # the history". The two are easy to confuse, so it is stated here.
         self.repo.write("config.json", '{"org": "AcmeCorp"}')
-        self.repo.commit("初期")
+        self.repo.commit("initial")
         self.repo.write("config.json", '{"org": "Example"}')
-        self.repo.commit("組織名を差し替える")
+        self.repo.commit("swap the organisation name out")
 
         self.assertFalse(verify(self.repo.path, ["AcmeCorp"], all_refs=False).ok)
 
-    def test_最初から無ければ検出しない(self):
+    def test_what_was_never_there_is_not_reported(self):
         self.repo.write("config.json", '{"org": "Example"}')
-        self.repo.commit("初期")
+        self.repo.commit("initial")
         self.assertTrue(verify(self.repo.path, ["AcmeCorp"]).ok)
 
-    def test_履歴のみかどうかを区別する(self):
+    def test_history_only_is_distinguished_from_still_present(self):
         self.repo.write("config.json", '{"org": "AcmeCorp"}')
-        self.repo.commit("初期")
+        self.repo.commit("initial")
         self.repo.write("config.json", '{"org": "Example"}')
-        self.repo.commit("組織名を差し替える")
+        self.repo.commit("swap the organisation name out")
 
         report = verify(self.repo.path, ["AcmeCorp"])
         blob_findings = [f for f in report.findings if f.location == "config.json"]
         self.assertTrue(blob_findings)
-        # config.json は現在も存在するので history_only ではない
+        # config.json is still there, so this one is not history-only.
         self.assertFalse(blob_findings[0].in_history_only)
 
-    def test_削除されたファイルは履歴のみと印をつける(self):
-        self.repo.write("secret-notes.md", "AcmeCorp の設定メモ")
-        self.repo.commit("メモを追加")
+    def test_a_deleted_file_is_marked_history_only(self):
+        self.repo.write("secret-notes.md", "notes on the AcmeCorp setup")
+        self.repo.commit("add the notes")
         (self.repo.path / "secret-notes.md").unlink()
-        self.repo.commit("メモを削除")
+        self.repo.commit("remove the notes")
 
         report = verify(self.repo.path, ["AcmeCorp"])
         self.assertFalse(report.ok)
@@ -121,24 +127,25 @@ class VariantTest(unittest.TestCase):
     def tearDown(self) -> None:
         self.repo.cleanup()
 
-    def test_パーセントエンコード形を見つける(self):
-        # 素の文字列は消したがURLの中に残っている、という状況。
-        self.repo.write("test.js", 'expect(url).toMatch(/%E5%A3%B2%E4%B8%8A%E9%AB%98/)')
-        self.repo.commit("テストを追加")
+    def test_the_percent_encoded_form_is_found(self):
+        # The plain string was removed and it is still inside a URL.
+        self.repo.write("test.js", f'expect(url).toMatch(/{NON_ASCII_PERCENT}/)')
+        self.repo.commit("add a test")
 
-        report = verify(self.repo.path, ["売上高"])
+        report = verify(self.repo.path, [NON_ASCII_TERM])
         self.assertFalse(report.ok)
-        # 報告は元の語で行う。エンコード形だけ見せても人間に伝わらない。
-        self.assertEqual(report.findings[0].term, "売上高")
+        # Reported under the original term. The encoded form alone tells a
+        # person nothing.
+        self.assertEqual(report.findings[0].term, NON_ASCII_TERM)
 
-    def test_大文字の変種を見つける(self):
+    def test_an_upper_case_variant_is_found(self):
         self.repo.write("run.sh", 'VERIFIED_ACMECORP_WINDOW_ID=1')
-        self.repo.commit("スクリプトを追加")
+        self.repo.commit("add a script")
         self.assertFalse(verify(self.repo.path, ["acmecorp"]).ok)
 
-    def test_正規表現エスケープ形を見つける(self):
+    def test_a_regex_escaped_form_is_found(self):
         self.repo.write("test.js", 'assert.match(s, /automation\\.once\\.json/)')
-        self.repo.commit("テストを追加")
+        self.repo.commit("add a test")
         self.assertFalse(verify(self.repo.path, ["automation.once.json"]).ok)
 
 
@@ -149,20 +156,20 @@ class MetadataTest(unittest.TestCase):
     def tearDown(self) -> None:
         self.repo.cleanup()
 
-    def test_コミットメッセージからも見つける(self):
-        # ファイルが綺麗でも、メッセージに残っていることがある。
+    def test_a_commit_message_is_searched_too(self):
+        # The files can be spotless while the message still says it.
         self.repo.write("readme.md", "clean")
-        self.repo.commit("AcmeCorp 向けの設定を追加")
+        self.repo.commit("add the configuration for AcmeCorp")
 
         report = verify(self.repo.path, ["AcmeCorp"])
         self.assertFalse(report.ok)
         self.assertTrue(
-            any(f.location == "コミットメタデータ" for f in report.findings)
+            any(f.location == "commit metadata" for f in report.findings)
         )
 
-    def test_メタデータ検査を切れる(self):
+    def test_the_metadata_check_can_be_turned_off(self):
         self.repo.write("readme.md", "clean")
-        self.repo.commit("AcmeCorp 向けの設定を追加")
+        self.repo.commit("add the configuration for AcmeCorp")
         self.assertTrue(verify(self.repo.path, ["AcmeCorp"], check_metadata=False).ok)
 
 
@@ -173,9 +180,9 @@ class EmptyInputTest(unittest.TestCase):
     def tearDown(self) -> None:
         self.repo.cleanup()
 
-    def test_禁止語が空なら常にOK(self):
+    def test_no_forbidden_terms_is_always_ok(self):
         self.repo.write("a.txt", "AcmeCorp")
-        self.repo.commit("初期")
+        self.repo.commit("initial")
         self.assertTrue(verify(self.repo.path, []).ok)
 
 

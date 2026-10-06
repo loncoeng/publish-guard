@@ -1,18 +1,19 @@
-"""禁止語が本当に消えたかを、履歴を含めて検証する。
+"""Check that the forbidden terms are really gone, history included.
 
-置換を実行するのはこのツールの仕事ではない。何を消すべきかは
-プロジェクトを知らないと判断できないため、そこは人間が決める。
-このツールが担うのは「決めたものが本当に消えたか」の確認だけで、
-そこは機械の方が確実にできる。
+Doing the replacing is not this tool's job. What ought to go cannot be decided
+without knowing the project, so a person decides that. All this takes on is
+confirming that what was decided actually went — and that part a machine does
+more reliably.
 
-scan と違い、こちらには除外の仕組みを置いていない。scan の除外は
-候補が埋もれるのを防ぐためのもので、外しても失うのは提案の精度でしかない。
-verify は公開を止める門なので、そこに除外を作ると門の意味がなくなる。
+Unlike scan, there is no exclusion mechanism here. Excluding things from scan
+stops the candidates being buried, and the only cost is the quality of a
+suggestion. verify is the gate that stops a repository being published, and a
+gate with exceptions in it is not a gate.
 
-ロックファイルも例外にしない。中身はチェックサムばかりだが、
-`@acmecorp/internal-ui` のような私設レジストリのパッケージ名や、
-社内ミラーの URL が入ることがある。**委託元が割れる形としては、
-むしろ典型的な部類に入る**。
+Lockfiles are not excused either. Mostly they hold checksums, but a private
+registry's package name — `@acmecorp/internal-ui` — or an internal mirror's URL
+ends up in them. **As ways of giving a client away, those are about as typical
+as it gets.**
 """
 
 from __future__ import annotations
@@ -26,9 +27,9 @@ from .variants import expand, variants
 
 @dataclass
 class Finding:
-    term: str          # 設定に書かれた元の語
-    matched: str       # 実際に見つかった表記
-    location: str      # ファイルパス、または "コミットメタデータ"
+    term: str          # the term as written in the config
+    matched: str       # the form it was actually found in
+    location: str      # a file path, or "commit metadata"
     in_history_only: bool
 
 
@@ -50,16 +51,16 @@ class Report:
 
 
 def _variant_owner(terms: list[str]) -> dict[str, str]:
-    """展開後の表記から、元の語を引けるようにする。
+    """Let an expanded form be traced back to the term it came from.
 
-    報告のときに「%E5%A3%B2%E4%B8%8A%E9%AB%98 が見つかりました」だけでは
-    人間に伝わらない。元の語と対にして示す必要がある。
+    "%E5%A3%B2%E4%B8%8A%E9%AB%98 was found" tells a person nothing. It has to
+    be reported next to the term it belongs to.
     """
     owner: dict[str, str] = {}
     for term in terms:
         for v in variants(term):
-            # 同じ表記が複数の語から生成されたときは、長い語を優先する。
-            # 「売上高」と「平均売上高」なら後者の方が情報量が多い。
+            # Where one form comes from several terms, the longer term wins:
+            # between "revenue" and "average revenue", the latter says more.
             if v not in owner or len(term) > len(owner[v]):
                 owner[v] = term
     return owner
@@ -73,7 +74,7 @@ def verify(
     history: bool = True,
     check_metadata: bool = True,
 ) -> Report:
-    """repo から terms（とその別表記）を探す。既定は全履歴。"""
+    """Look for terms, and their other forms, in repo. The whole history by default."""
     report = Report()
     if not terms:
         return report
@@ -108,7 +109,7 @@ def verify(
                     Finding(
                         term=owner.get(needle, needle),
                         matched=needle,
-                        location="コミットメタデータ",
+                        location="commit metadata",
                         in_history_only=False,
                     )
                 )
